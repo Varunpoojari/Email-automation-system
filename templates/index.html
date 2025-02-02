@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Email Automation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #results, #attachmentList {
+            margin-top: 20px;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+        .attachment-item {
+            display: inline-block;
+            background: #f0f0f0;
+            padding: 5px 10px;
+            margin: 5px;
+            border-radius: 3px;
+        }
+        .remove-attachment {
+            color: red;
+            margin-left: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Enhanced Email Automation</h1>
+    
+    <!-- Template Selection -->
+    <div class="form-group">
+        <label for="templateSelect">Select Template:</label>
+        <select id="templateSelect" onchange="loadTemplate()">
+            <option value="">-- Select Template --</option>
+            {% for template in templates %}
+            <option value="{{ loop.index0 }}">{{ template.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <!-- Save Template Form -->
+    <div class="form-group">
+        <label for="templateName">Save as Template:</label>
+        <input type="text" id="templateName" placeholder="Template Name">
+        <button onclick="saveTemplate()">Save Template</button>
+    </div>
+
+    <!-- Email Form -->
+    <div class="form-group">
+        <label for="recipients">Recipients (one email per line):</label>
+        <textarea id="recipients" rows="5"></textarea>
+    </div>
+    
+    <div class="form-group">
+        <label for="subject">Subject:</label>
+        <input type="text" id="subject">
+    </div>
+    
+    <div class="form-group">
+        <label for="body">Email Body (HTML supported):</label>
+        <textarea id="body" rows="10"></textarea>
+    </div>
+
+    <!-- File Upload -->
+    <div class="form-group">
+        <label for="attachment">Attachments:</label>
+        <input type="file" id="attachment" onchange="uploadFile()">
+        <div id="attachmentList"></div>
+    </div>
+
+    <button onclick="sendEmails()">Send Emails</button>
+    <div id="results"></div>
+
+    <script>
+        let attachments = [];
+        const templates = {{ templates|tojson|safe }};
+
+        function loadTemplate() {
+            const select = document.getElementById('templateSelect');
+            if (select.value === '') return;
+
+            const template = templates[select.value];
+            document.getElementById('subject').value = template.subject;
+            document.getElementById('body').value = template.body;
+        }
+
+        async function saveTemplate() {
+            const name = document.getElementById('templateName').value;
+            const subject = document.getElementById('subject').value;
+            const body = document.getElementById('body').value;
+
+            if (!name) {
+                alert('Please enter a template name');
+                return;
+            }
+
+            const response = await fetch('/save_template', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ name, subject, body })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                alert('Template saved successfully');
+                location.reload();
+            }
+        }
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('attachment');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            if (result.filename) {
+                attachments.push(result.filename);
+                updateAttachmentList();
+            } else {
+                alert(result.error || 'Upload failed');
+            }
+
+            fileInput.value = '';
+        }
+
+        function removeAttachment(filename) {
+            attachments = attachments.filter(a => a !== filename);
+            updateAttachmentList();
+        }
+
+        function updateAttachmentList() {
+            const list = document.getElementById('attachmentList');
+            list.innerHTML = attachments.map(filename => `
+                <div class="attachment-item">
+                    ${filename}
+                    <span class="remove-attachment" onclick="removeAttachment('${filename}')">&times;</span>
+                </div>
+            `).join('');
+        }
+
+        async function sendEmails() {
+            const recipients = document.getElementById('recipients').value
+                .split('\n')
+                .map(email => email.trim())
+                .filter(email => email !== '');
+            
+            const subject = document.getElementById('subject').value;
+            const body = document.getElementById('body').value;
+            
+            const response = await fetch('/send_emails', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    recipients,
+                    subject,
+                    body,
+                    attachments
+                })
+            });
+            
+            const data = await response.json();
+            displayResults(data.results);
+        }
+
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<h2>Results:</h2>';
+            
+            results.forEach(result => {
+                const status = result.success ? 'success' : 'error';
+                const message = result.success ? 'Email sent successfully' : 'Failed to send email';
+                resultsDiv.innerHTML += `
+                    <p class="${status}">
+                        ${result.email}: ${message}
+                    </p>
+                `;
+            });
+        }
+    </script>
+</body>
+</html>
